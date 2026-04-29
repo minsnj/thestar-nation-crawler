@@ -58,22 +58,40 @@ def already_saved(ws, link: str) -> bool:
     return link in ws.col_values(5)
 
 
-def translate(client: Anthropic, text: str) -> str:
-    if not text or not text.strip():
-        return ""
+def translate_batch(client: Anthropic, articles: list) -> list:
+    """제목+요약을 한 번의 API 호출로 전부 번역 (속도 최적화)"""
+    if not articles:
+        return []
+
+    # 번호 매겨서 한꺼번에 보내기
+    lines = []
+    for i, a in enumerate(articles, 1):
+        lines.append(f"[{i}] TITLE: {a.get('title', '')[:200]}")
+        lines.append(f"[{i}] SUMMARY: {a.get('summary', '')[:400]}")
+
+    prompt = (
+        "Translate each TITLE and SUMMARY to Korean. "
+        "Return ONLY in this exact format, nothing else:\n"
+        "[1] TITLE: 한국어제목\n[1] SUMMARY: 한국어요약\n[2] TITLE: ...\n\n"
+        + "\n".join(lines)
+    )
+
     resp = client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=1024,
-        messages=[{
-            "role": "user",
-            "content": (
-                "Translate the following English text to Korean. "
-                "Return only the Korean translation, no explanation.\n\n"
-                + text[:800]
-            ),
-        }],
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
     )
-    return resp.content[0].text.strip()
+
+    # 파싱
+    results = [{"title_kr": "", "summary_kr": ""} for _ in articles]
+    for line in resp.content[0].text.strip().splitlines():
+        line = line.strip()
+        for i in range(1, len(articles) + 1):
+            if line.startswith(f"[{i}] TITLE:"):
+                results[i - 1]["title_kr"] = line[len(f"[{i}] TITLE:"):].strip()
+            elif line.startswith(f"[{i}] SUMMARY:"):
+                results[i - 1]["summary_kr"] = line[len(f"[{i}] SUMMARY:"):].strip()
+    return results
 
 
 def fetch_articles() -> list:
@@ -104,22 +122,29 @@ def run():
     articles = fetch_articles()
     print(f"  수집된 기사: {len(articles)}개")
 
+    # 중복 제거
+    new_articles = [a for a in articles if not already_saved(ws, a.get("url", ""))]
+    print(f"  신규 기사: {len(new_articles)}개")
+
+    if not new_articles:
+        print("새 기사 없음")
+        os.unlink(creds_file)
+        return
+
+    # 한 번에 전체 번역
+    translations = translate_batch(anthropic, new_articles)
+
     rows = []
-    for article in articles:
-        link = article.get("url", "")
-        if already_saved(ws, link):
-            print(f"    skip: {link}")
-            continue
-
-        title_en   = article.get("title", "").strip()
-        summary_en = article.get("summary", "").strip()
-        pub_date   = article.get("published_date", now.strftime("%Y-%m-%d"))
-
-        title_kr   = translate(anthropic, title_en)
-        summary_kr = translate(anthropic, summary_en)
-
-        rows.append([pub_date, title_en, title_kr, summary_kr, link, collected_at])
-        time.sleep(0.3)
+    for article, tr in zip(new_articles, translations):
+        pub_date = article.get("published_date", now.strftime("%Y-%m-%d"))
+        rows.append([
+            pub_date,
+            article.get("title", "").strip(),
+            tr["title_kr"],
+            tr["summary_kr"],
+            article.get("url", ""),
+            collected_at,
+        ])
 
     if rows:
         ws.append_rows(rows, value_input_option="USER_ENTERED")

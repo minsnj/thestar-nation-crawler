@@ -1,0 +1,6 @@
+google_credentials.json
+*.json
+__pycache__/
+*.pyc
+.env
+.DS_Store

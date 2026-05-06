@@ -286,9 +286,13 @@ def fetch_articles(ws):
 
 
 def run_fetch():
-    """기사 수집 후 JSON을 stdout으로 출력 (CCR용)"""
+    """기사 수집 후 JSON을 stdout으로 출력 (CCR용) — 디버그 메시지는 stderr로"""
+    import sys
+    old_stdout = sys.stdout
+    sys.stdout = sys.stderr  # 중간 print는 모두 stderr로
     ws = get_sheet()
     articles = fetch_articles(ws)
+    sys.stdout = old_stdout
     print(json.dumps(articles, ensure_ascii=False))
 
 

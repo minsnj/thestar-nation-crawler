@@ -296,6 +296,15 @@ def run_fetch():
     print(json.dumps(articles, ensure_ascii=False))
 
 
+def run_clear():
+    """헤더 행만 남기고 시트 초기화 (CCR용)"""
+    ws = get_sheet()
+    total = len(ws.get_all_values())
+    if total > 1:
+        ws.delete_rows(2, total)
+    print(f"시트 초기화 완료 ({total - 1}개 행 삭제)")
+
+
 def run_save():
     """stdin에서 분류된 JSON을 읽어 Google Sheets에 저장 (CCR용)"""
     import sys
@@ -330,5 +339,7 @@ if __name__ == "__main__":
         run_fetch()
     elif "--save" in sys.argv:
         run_save()
+    elif "--clear" in sys.argv:
+        run_clear()
     else:
-        print("Usage: python crawler.py --fetch | --save")
+        print("Usage: python crawler.py --fetch | --save | --clear")
